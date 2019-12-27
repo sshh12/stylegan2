@@ -33,7 +33,7 @@ _valid_configs = [
 
 #----------------------------------------------------------------------------
 
-def run(dataset, data_dir, result_dir, config_id, num_gpus, total_kimg, gamma, mirror_augment, metrics):
+def run(dataset, data_dir, result_dir, config_id, num_gpus, total_kimg, gamma, mirror_augment, metrics, resume):
     train     = EasyDict(run_func_name='training.training_loop.training_loop') # Options for training loop.
     G         = EasyDict(func_name='training.networks_stylegan2.G_main')       # Options for generator network.
     D         = EasyDict(func_name='training.networks_stylegan2.D_stylegan2')  # Options for discriminator network.
@@ -114,6 +114,8 @@ def run(dataset, data_dir, result_dir, config_id, num_gpus, total_kimg, gamma, m
     kwargs = EasyDict(train)
     kwargs.update(G_args=G, D_args=D, G_opt_args=G_opt, D_opt_args=D_opt, G_loss_args=G_loss, D_loss_args=D_loss)
     kwargs.update(dataset_args=dataset_args, sched_args=sched, grid_args=grid, metric_arg_list=metrics, tf_config=tf_config)
+    if len(resume) > 0:
+        kwargs.update(_load_resume_params(result_dir, resume))
     kwargs.submit_config = copy.deepcopy(sc)
     kwargs.submit_config.run_dir_root = result_dir
     kwargs.submit_config.run_desc = desc
@@ -135,6 +137,20 @@ def _parse_comma_sep(s):
     if s is None or s.lower() == 'none' or s == '':
         return []
     return s.split(',')
+
+def _load_resume_params(result_dir, run_name):
+    old_dir = os.path.join(result_dir, run_name)
+    snap_fns = [fn for fn in os.listdir(old_dir) if 'snapshot' in fn]
+    latest_pkl = max(snap_fns, key=lambda fn: int(fn.split('-')[-1].replace('.pkl', '')))
+    with open(os.path.join(old_dir, 'log.txt'), 'r') as log_file:
+        logs = log_file.read().strip().split('\n')
+        kimg = float(logs[-1].split()[3])
+    params = {
+        'resume_pkl': os.path.join(old_dir, latest_pkl),
+        'resume_kimg': kimg,
+        'resume_time': 0
+    }
+    return params
 
 #----------------------------------------------------------------------------
 
@@ -168,6 +184,7 @@ def main():
     parser.add_argument('--gamma', help='R1 regularization weight (default is config dependent)', default=None, type=float)
     parser.add_argument('--mirror-augment', help='Mirror augment (default: %(default)s)', default=False, metavar='BOOL', type=_str_to_bool)
     parser.add_argument('--metrics', help='Comma-separated list of metrics or "none" (default: %(default)s)', default='fid50k', type=_parse_comma_sep)
+    parser.add_argument('--resume', help='Resume previous run', default='', required=False)
 
     args = parser.parse_args()
 
